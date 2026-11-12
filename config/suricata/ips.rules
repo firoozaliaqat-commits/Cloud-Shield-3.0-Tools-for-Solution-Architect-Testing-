@@ -1,0 +1,1 @@
+drop tcp any any -> any 8096 (msg:"CloudShield IPS safely dropped LAB_TEST_MARKER request"; content:"LAB_TEST_MARKER"; sid:1000100; rev:1;)

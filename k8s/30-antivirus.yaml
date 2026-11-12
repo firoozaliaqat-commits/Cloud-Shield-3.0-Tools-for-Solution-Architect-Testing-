@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: clamav
+  namespace: cloudshield
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: clamav
+  template:
+    metadata:
+      labels:
+        app: clamav
+    spec:
+      containers:
+      - name: clamav
+        image: clamav/clamav:stable
+        ports:
+        - containerPort: 3310
+        resources:
+          requests:
+            cpu: 200m
+            memory: 700Mi
+          limits:
+            cpu: 1000m
+            memory: 2500Mi
+        volumeMounts:
+        - name: signatures
+          mountPath: /var/lib/clamav
+      volumes:
+      - name: signatures
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: clamav
+  namespace: cloudshield
+spec:
+  selector:
+    app: clamav
+  ports:
+  - port: 3310
+    targetPort: 3310

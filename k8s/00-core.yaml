@@ -1,0 +1,174 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cloudshield
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: lab-data
+  namespace: cloudshield
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: labapp
+  namespace: cloudshield
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: labapp
+  template:
+    metadata:
+      labels:
+        app: labapp
+    spec:
+      securityContext:
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      containers:
+      - name: labapp
+        image: cloudshield-lab:3.0.0
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 8000
+        env:
+        - name: LAB_DATA_DIR
+          value: /data
+        - name: LAB_TARGET_URL
+          value: http://waf:8080
+        - name: VPC_TARGET_URL
+          value: ''
+        - name: K6_PATH
+          value: /usr/local/bin/k6
+        - name: K6_SCRIPTS
+          value: /app/k6
+        - name: MAX_VUS
+          value: '40'
+        - name: MAX_SECONDS
+          value: '180'
+        - name: CROWDSEC_LAPI_URL
+          value: http://crowdsec:8080
+        - name: CROWDSEC_BOUNCER_KEY
+          valueFrom:
+            secretKeyRef:
+              name: cloudshield-key
+              key: key
+        - name: TOOLBOX_URL
+          value: http://toolbox:8099
+        - name: TOOLBOX_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: cloudshield-key
+              key: toolboxToken
+        - name: LAB_PROBE_IP
+          value: 172.30.56.50
+        - name: TELEMETRY_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: cloudshield-key
+              key: telemetryToken
+        - name: APP_VERSION
+          value: 3.0.0
+        resources:
+          requests:
+            cpu: 150m
+            memory: 192Mi
+          limits:
+            cpu: 1500m
+            memory: 1400Mi
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 8
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8000
+          initialDelaySeconds: 15
+          periodSeconds: 15
+        securityContext:
+          allowPrivilegeEscalation: false
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: lab-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: labapp
+  namespace: cloudshield
+spec:
+  selector:
+    app: labapp
+  ports:
+  - port: 8000
+    targetPort: 8000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: waf
+  namespace: cloudshield
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: waf
+  template:
+    metadata:
+      labels:
+        app: waf
+    spec:
+      containers:
+      - name: waf
+        image: ghcr.io/coreruleset/coraza-crs:4.25-caddy-alpine-lts
+        ports:
+        - containerPort: 8080
+        env:
+        - name: BACKEND
+          value: labapp:8000
+        - name: PORT
+          value: '8080'
+        - name: CORAZA_RULE_ENGINE
+          value: 'On'
+        - name: BLOCKING_PARANOIA
+          value: '1'
+        - name: ANOMALY_INBOUND
+          value: '5'
+        resources:
+          requests:
+            cpu: 100m
+            memory: 96Mi
+          limits:
+            cpu: 1000m
+            memory: 650Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: waf
+  namespace: cloudshield
+spec:
+  type: ClusterIP
+  selector:
+    app: waf
+  ports:
+  - port: 8080
+    targetPort: 8080

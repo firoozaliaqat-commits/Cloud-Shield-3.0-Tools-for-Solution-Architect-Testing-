@@ -1,0 +1,13 @@
+# Port 9108 exposes ONLY telemetry ingestion. Never proxy the admin interface here.
+:9108 {
+  @ingest {
+    path /api/telemetry/ingest
+    method POST
+  }
+  handle @ingest {
+    reverse_proxy labapp:8000
+  }
+  handle {
+    respond "Not found" 404
+  }
+}

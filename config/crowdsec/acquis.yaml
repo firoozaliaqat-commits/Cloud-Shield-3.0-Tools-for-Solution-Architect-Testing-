@@ -1,0 +1,4 @@
+filenames:
+  - /var/log/cloudshield/logs/nginx-access.log
+labels:
+  type: nginx

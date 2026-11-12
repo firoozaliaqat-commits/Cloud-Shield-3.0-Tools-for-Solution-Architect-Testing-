@@ -1,0 +1,375 @@
+name: cloudshield-koolab
+services:
+  labapp:
+    build:
+      context: .
+      dockerfile: app/Dockerfile
+    image: cloudshield-lab:3.0.0
+    restart: unless-stopped
+    environment:
+      LAB_DATA_DIR: /data
+      LAB_TARGET_URL: http://waf:8080
+      VPC_TARGET_URL: ${VPC_TARGET_URL:-}
+      K6_PATH: /usr/local/bin/k6
+      K6_SCRIPTS: /app/k6
+      MAX_VUS: ${MAX_VUS:-40}
+      MAX_SECONDS: ${MAX_SECONDS:-180}
+      CROWDSEC_BOUNCER_KEY: ${CROWDSEC_BOUNCER_KEY:-}
+      CROWDSEC_LAPI_URL: http://crowdsec:8080
+      CLAMAV_HOST: clamav
+      TOOLBOX_URL: http://toolbox:8099
+      TOOLBOX_TOKEN: ${TOOLBOX_TOKEN:?Generate .env using install.sh}
+      LAB_PROBE_IP: 172.30.56.50
+      TELEMETRY_TOKEN: ${TELEMETRY_TOKEN:?Run install.sh}
+      APP_VERSION: 3.0.0
+    volumes:
+    - lab_data:/data
+    - waf_audit:/waf_audit:ro
+    networks:
+    - labnet
+    healthcheck:
+      test:
+      - CMD
+      - python
+      - -c
+      - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz',timeout=3)
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 25s
+    security_opt:
+    - no-new-privileges:true
+    pids_limit: 160
+    mem_limit: 1400m
+    cpus: 1.25
+  waf:
+    image: ghcr.io/coreruleset/coraza-crs:4.25-caddy-alpine-lts
+    restart: unless-stopped
+    depends_on:
+      labapp:
+        condition: service_healthy
+    environment:
+      BACKEND: labapp:8000
+      PORT: '8080'
+      CORAZA_RULE_ENGINE: 'On'
+      BLOCKING_PARANOIA: '1'
+      ANOMALY_INBOUND: '5'
+      CORAZA_AUDIT_ENGINE: RelevantOnly
+      CORAZA_AUDIT_LOG_FORMAT: JSON
+      CORAZA_AUDIT_LOG: /var/log/coraza/audit.log
+      CORAZA_AUDIT_LOG_TYPE: Serial
+      CORAZA_AUDIT_LOG_RELEVANT_STATUS: ^(?:5|4[0-9][0-35-9])
+    networks:
+    - labnet
+    security_opt:
+    - no-new-privileges:true
+    mem_limit: 550m
+    cpus: 1.0
+    volumes:
+    - waf_audit:/var/log/coraza
+  crowdsec:
+    image: crowdsecurity/crowdsec:latest
+    profiles:
+    - security
+    depends_on:
+      labapp:
+        condition: service_healthy
+    restart: unless-stopped
+    environment:
+      COLLECTIONS: crowdsecurity/nginx
+      BOUNCER_KEY_cloudshield: ${CROWDSEC_BOUNCER_KEY:-}
+      GID: '10001'
+    volumes:
+    - crowdsec_data:/var/lib/crowdsec/data
+    - crowdsec_config:/etc/crowdsec
+    - lab_data:/var/log/cloudshield:ro
+    - ./config/crowdsec/acquis.yaml:/etc/crowdsec/acquis.yaml:ro
+    - ./config/crowdsec/scenarios/cloudshield-login-bf.yaml:/etc/crowdsec/scenarios/cloudshield-login-bf.yaml:ro
+    networks:
+    - labnet
+    mem_limit: 650m
+    cpus: 0.75
+  prometheus:
+    image: prom/prometheus:v3.4.1
+    profiles:
+    - monitoring
+    restart: unless-stopped
+    command:
+    - --config.file=/etc/prometheus/prometheus.yml
+    - --storage.tsdb.path=/prometheus
+    - --storage.tsdb.retention.time=24h
+    - --web.enable-remote-write-receiver
+    volumes:
+    - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    - prometheus_data:/prometheus
+    networks:
+    - labnet
+    ports:
+    - 127.0.0.1:9090:9090
+    mem_limit: 550m
+    cpus: 0.5
+  grafana:
+    image: grafana/grafana:11.6.2
+    profiles:
+    - monitoring
+    restart: unless-stopped
+    depends_on:
+    - prometheus
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-replace-me-for-local-lab}
+      GF_AUTH_ANONYMOUS_ENABLED: 'true'
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_AUTH_DISABLE_LOGIN_FORM: 'true'
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/01-overview.json
+    volumes:
+    - grafana_data:/var/lib/grafana
+    - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+    - ./config/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+    - 127.0.0.1:3000:3000
+    networks:
+    - labnet
+    mem_limit: 600m
+    cpus: 0.5
+  clamav:
+    image: clamav/clamav:stable
+    profiles:
+    - antivirus
+    restart: unless-stopped
+    volumes:
+    - clamav_db:/var/lib/clamav
+    networks:
+    - labnet
+    mem_limit: 2500m
+    cpus: 1.0
+  iperf3-server:
+    build:
+      context: .
+      dockerfile: config/iperf3.Dockerfile
+    image: cloudshield-iperf3:2.0.0
+    command:
+    - -s
+    networks:
+    - labnet
+    security_opt:
+    - no-new-privileges:true
+    restart: unless-stopped
+    mem_limit: 128m
+    cpus: 0.5
+  suricata:
+    image: jasonish/suricata:8.0
+    profiles:
+    - ids
+    entrypoint:
+    - suricata
+    command:
+    - -r
+    - /pcaps/lab-demo.pcap
+    - -S
+    - /rules/lab.rules
+    - -l
+    - /data/suricata
+    volumes:
+    - lab_data:/data
+    - ./config/suricata/lab.rules:/rules/lab.rules:ro
+    - ./config/suricata/lab-demo.pcap:/pcaps/lab-demo.pcap:ro
+    networks:
+    - labnet
+    restart: 'no'
+    mem_limit: 800m
+  toolbox:
+    build:
+      context: .
+      dockerfile: tools/Dockerfile
+    image: cloudshield-toolbox:3.0.0
+    restart: unless-stopped
+    environment:
+      TOOLBOX_TOKEN: ${TOOLBOX_TOKEN:?Generate .env using install.sh}
+    volumes:
+    - lab_data:/data
+    networks:
+      labnet:
+        ipv4_address: 172.30.56.50
+    depends_on:
+    - iperf3-server
+    healthcheck:
+      test:
+      - CMD
+      - python
+      - -c
+      - import urllib.request;urllib.request.urlopen('http://127.0.0.1:8099/health',timeout=3)
+      interval: 20s
+      timeout: 4s
+      retries: 4
+      start_period: 20s
+    security_opt:
+    - no-new-privileges:true
+    pids_limit: 90
+    mem_limit: 1100m
+    cpus: 0.75
+    cap_add:
+    - NET_RAW
+    - NET_ADMIN
+  node-exporter:
+    image: prom/node-exporter:v1.9.1
+    pid: host
+    profiles:
+    - monitoring
+    restart: unless-stopped
+    command:
+    - --path.rootfs=/host
+    - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)
+    volumes:
+    - /:/host:ro,rslave
+    networks:
+    - labnet
+    read_only: true
+    security_opt:
+    - no-new-privileges:true
+    mem_limit: 170m
+    cpus: 0.3
+  client-a:
+    build:
+      context: .
+      dockerfile: tools/client.Dockerfile
+    image: cloudshield-client:3.0.0
+    restart: unless-stopped
+    environment:
+      CLIENT_TOKEN: ${TOOLBOX_TOKEN:?Run install.sh}
+      CLIENT_NAME: A
+    networks:
+      labnet:
+        ipv4_address: 172.30.56.61
+    mem_limit: 96m
+    cpus: 0.2
+    pids_limit: 35
+    security_opt:
+    - no-new-privileges:true
+  client-b:
+    build:
+      context: .
+      dockerfile: tools/client.Dockerfile
+    image: cloudshield-client:3.0.0
+    restart: unless-stopped
+    environment:
+      CLIENT_TOKEN: ${TOOLBOX_TOKEN:?Run install.sh}
+      CLIENT_NAME: B
+    networks:
+      labnet:
+        ipv4_address: 172.30.56.62
+    mem_limit: 96m
+    cpus: 0.2
+    pids_limit: 35
+    security_opt:
+    - no-new-privileges:true
+  client-c:
+    build:
+      context: .
+      dockerfile: tools/client.Dockerfile
+    image: cloudshield-client:3.0.0
+    restart: unless-stopped
+    environment:
+      CLIENT_TOKEN: ${TOOLBOX_TOKEN:?Run install.sh}
+      CLIENT_NAME: C
+    networks:
+      labnet:
+        ipv4_address: 172.30.56.63
+    mem_limit: 96m
+    cpus: 0.2
+    pids_limit: 35
+    security_opt:
+    - no-new-privileges:true
+  load-1:
+    build:
+      context: .
+      dockerfile: tools/k6-agent.Dockerfile
+    image: cloudshield-k6-agent:3.0.0
+    restart: unless-stopped
+    environment:
+      TOOLBOX_TOKEN: ${TOOLBOX_TOKEN:?Run install.sh}
+      AGENT_NAME: load-1
+    networks:
+      labnet:
+        ipv4_address: 172.30.56.71
+    mem_limit: 280m
+    cpus: 0.4
+    pids_limit: 80
+    security_opt:
+    - no-new-privileges:true
+  load-2:
+    build:
+      context: .
+      dockerfile: tools/k6-agent.Dockerfile
+    image: cloudshield-k6-agent:3.0.0
+    restart: unless-stopped
+    environment:
+      TOOLBOX_TOKEN: ${TOOLBOX_TOKEN:?Run install.sh}
+      AGENT_NAME: load-2
+    networks:
+      labnet:
+        ipv4_address: 172.30.56.72
+    mem_limit: 280m
+    cpus: 0.4
+    pids_limit: 80
+    security_opt:
+    - no-new-privileges:true
+  load-3:
+    build:
+      context: .
+      dockerfile: tools/k6-agent.Dockerfile
+    image: cloudshield-k6-agent:3.0.0
+    restart: unless-stopped
+    environment:
+      TOOLBOX_TOKEN: ${TOOLBOX_TOKEN:?Run install.sh}
+      AGENT_NAME: load-3
+    networks:
+      labnet:
+        ipv4_address: 172.30.56.73
+    mem_limit: 280m
+    cpus: 0.4
+    pids_limit: 80
+    security_opt:
+    - no-new-privileges:true
+  telemetry-receiver:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    volumes:
+    - ./config/telemetry/Caddyfile:/etc/caddy/Caddyfile:ro
+    networks:
+    - labnet
+    ports:
+    - ${TELEMETRY_BIND_IP:-0.0.0.0}:9108:9108
+    mem_limit: 110m
+    cpus: 0.2
+  gateway:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    depends_on:
+      labapp:
+        condition: service_healthy
+      waf:
+        condition: service_started
+    volumes:
+    - ./config/gateway/Caddyfile:/etc/caddy/Caddyfile:ro
+    ports:
+    - ${LAB_BIND_IP:-127.0.0.1}:${LAB_PORT:-8080}:8080
+    networks:
+    - labnet
+    mem_limit: 140m
+    cpus: 0.3
+networks:
+  labnet:
+    driver: bridge
+    ipam:
+      config:
+      - subnet: 172.30.56.0/24
+volumes:
+  lab_data: null
+  crowdsec_data: null
+  crowdsec_config: null
+  prometheus_data: null
+  grafana_data: null
+  clamav_db: null
+  waf_audit: null

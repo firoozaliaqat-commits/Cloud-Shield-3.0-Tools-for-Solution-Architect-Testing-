@@ -1,0 +1,15 @@
+type: leaky
+name: cloudshield/classroom-login-bf
+description: Detect repeated failed lab login attempts from one source IP
+filter: "evt.Meta.log_type == 'http_access-log' && evt.Meta.http_status == '401' && evt.Meta.http_path startsWith '/target/login'"
+leakspeed: 2m
+capacity: 4
+groupby: evt.Meta.source_ip
+blackhole: 1m
+labels:
+  remediation: true
+  classification:
+    - attack.T1110
+  behavior: "http:bruteforce"
+  label: "Lab login abuse"
+  service: http

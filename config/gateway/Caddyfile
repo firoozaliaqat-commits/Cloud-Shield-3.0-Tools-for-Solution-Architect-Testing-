@@ -1,0 +1,11 @@
+# Admin UI and /api management BYPASS Coraza to avoid classroom lockout.
+# Protected Demo Store traffic only enters through Coraza.
+:8080 {
+  @protected path /target/*
+  handle @protected {
+    reverse_proxy waf:8080
+  }
+  handle {
+    reverse_proxy labapp:8000
+  }
+}

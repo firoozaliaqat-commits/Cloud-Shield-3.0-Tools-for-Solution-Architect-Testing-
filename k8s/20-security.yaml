@@ -1,0 +1,110 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: crowdsec-acquis
+  namespace: cloudshield
+data:
+  acquis.yaml: "filenames:\n  - /var/log/cloudshield/logs/nginx-access.log\nlabels:\n\
+    \  type: nginx\n"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cloudshield-crowdsec-scenario
+  namespace: cloudshield
+data:
+  cloudshield-login-bf.yaml: "type: leaky\nname: cloudshield/classroom-login-bf\n\
+    description: Detect repeated failed lab login attempts from one source IP\nfilter:\
+    \ \"evt.Meta.log_type == 'http_access-log' && evt.Meta.http_status == '401' &&\
+    \ evt.Meta.http_path startsWith '/target/login'\"\nleakspeed: 2m\ncapacity: 4\n\
+    groupby: evt.Meta.source_ip\nblackhole: 1m\nlabels:\n  remediation: true\n  classification:\n\
+    \    - attack.T1110\n  behavior: \"http:bruteforce\"\n  label: \"Lab login abuse\"\
+    \n  service: http\n"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: crowdsec
+  namespace: cloudshield
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: crowdsec
+  template:
+    metadata:
+      labels:
+        app: crowdsec
+    spec:
+      securityContext:
+        fsGroup: 10001
+      initContainers:
+      - name: wait-for-access-log
+        image: busybox:1.36
+        command:
+        - sh
+        - -c
+        - until test -f /logs/logs/nginx-access.log; do sleep 1; done
+        volumeMounts:
+        - name: data
+          mountPath: /logs
+          readOnly: true
+      containers:
+      - name: crowdsec
+        image: crowdsecurity/crowdsec:latest
+        env:
+        - name: COLLECTIONS
+          value: crowdsecurity/nginx
+        - name: BOUNCER_KEY_cloudshield
+          valueFrom:
+            secretKeyRef:
+              name: cloudshield-key
+              key: key
+        ports:
+        - containerPort: 8080
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 750m
+            memory: 700Mi
+        volumeMounts:
+        - name: acquis
+          mountPath: /etc/crowdsec/acquis.yaml
+          subPath: acquis.yaml
+        - name: data
+          mountPath: /var/log/cloudshield
+          readOnly: true
+        - name: crowdsec-store
+          mountPath: /var/lib/crowdsec/data
+        - name: classroom-scenario
+          mountPath: /etc/crowdsec/scenarios/cloudshield-login-bf.yaml
+          subPath: cloudshield-login-bf.yaml
+          readOnly: true
+      volumes:
+      - name: acquis
+        configMap:
+          name: crowdsec-acquis
+      - name: data
+        persistentVolumeClaim:
+          claimName: lab-data
+      - name: crowdsec-store
+        emptyDir: {}
+      - name: classroom-scenario
+        configMap:
+          name: cloudshield-crowdsec-scenario
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: crowdsec
+  namespace: cloudshield
+spec:
+  selector:
+    app: crowdsec
+  ports:
+  - port: 8080
+    targetPort: 8080

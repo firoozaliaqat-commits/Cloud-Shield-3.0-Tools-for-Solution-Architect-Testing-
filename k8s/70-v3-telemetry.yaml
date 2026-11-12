@@ -1,0 +1,48 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cloudshield-telemetry-proxy
+  namespace: cloudshield
+data:
+  Caddyfile: "# Port 9108 exposes ONLY telemetry ingestion. Never proxy the admin\
+    \ interface here.\n:9108 {\n  @ingest {\n    path /api/telemetry/ingest\n    method\
+    \ POST\n  }\n  handle @ingest {\n    reverse_proxy labapp:8000\n  }\n  handle\
+    \ {\n    respond \"Not found\" 404\n  }\n}\n"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  namespace: cloudshield
+  name: telemetry-receiver
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: telemetry-receiver
+  template:
+    metadata:
+      labels:
+        app: telemetry-receiver
+    spec:
+      containers:
+      - name: telemetry-receiver
+        image: caddy:2.10-alpine
+        ports:
+        - containerPort: 9108
+          hostPort: 9108
+          protocol: TCP
+        volumeMounts:
+        - name: config
+          mountPath: /etc/caddy/Caddyfile
+          subPath: Caddyfile
+        resources:
+          requests:
+            cpu: 20m
+            memory: 25Mi
+          limits:
+            cpu: 200m
+            memory: 110Mi
+      volumes:
+      - name: config
+        configMap:
+          name: cloudshield-telemetry-proxy

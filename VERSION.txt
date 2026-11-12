@@ -1,0 +1,5 @@
+CloudShield KooLab 2.1 Suricata-build hotfix
+Base: CloudShield KooLab 2.0
+Fix: toolbox uses ubuntu:24.04 + python3 + suricata + iperf3
+Installer builds before removing running containers.
+No source of application API changed.

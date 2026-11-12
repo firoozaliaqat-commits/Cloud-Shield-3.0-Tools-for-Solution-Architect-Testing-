@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark"><title>CloudShield 3.0 | Huawei KooLab</title>
+<link rel="stylesheet" href="/static/style.css?v=3"></head>
+<body>
+<div class="shell">
+  <aside class="sidebar">
+    <a class="brand" href="/tool/overview"><span class="brand-logo">◈</span><span><b>CloudShield</b><small>KOOLAB · HANDS-ON v3.0</small></span></a>
+    <div class="nav-caption">WORKSPACE</div>
+    <nav class="nav" id="nav">
+      <a data-page="overview" href="/tool/overview"><span>◫</span> Overview</a>
+      <div class="nav-caption in-nav">SECURITY LABS</div>
+      <a data-page="crowdsec" href="/tool/crowdsec"><span>⊘</span> CrowdSec & IP Bans</a>
+      <a data-page="waf" href="/tool/waf"><span>⬡</span> Coraza WAF</a>
+      <a data-page="suricata" href="/tool/suricata"><span>◎</span> Suricata IDS</a>
+      <a data-page="clamav" href="/tool/clamav"><span>◈</span> ClamAV Antivirus</a>
+      <div class="nav-caption in-nav">TEST & MEASURE</div>
+      <a data-page="k6" href="/tool/k6"><span>↗</span> k6 Load Testing</a>
+      <a data-page="iperf3" href="/tool/iperf3"><span>⇄</span> iperf3 Network Test</a>
+      <a data-page="prometheus" href="/tool/prometheus"><span>◷</span> Prometheus Metrics</a>
+      <a data-page="grafana" href="/tool/grafana"><span>▥</span> Grafana & Metrics</a>
+      <div class="nav-caption in-nav">APPLICATION</div>
+      <a data-page="store" href="/tool/store"><span>▣</span> Demo Store</a>
+      <a data-page="remoteecs" href="/tool/remoteecs"><span>▦</span> Remote ECS2</a>
+      <a data-page="guide" href="/tool/guide"><span>☷</span> Student Guide</a>
+    </nav>
+    <div class="sidebar-note"><strong>ISOLATED CLASSROOM LAB</strong><p>Real test engines. Fixed authorized targets. Dashboard access via SSH tunnel. Not a public security gateway.</p></div>
+  </aside>
+  <div class="main-shell"><header class="topbar"><div><span class="overline">HUAWEI CLOUD · ECS PRACTICAL</span><strong id="topTitle">CloudShield Operations</strong></div><div class="top-status"><span class="status-pulse" id="topPulse"></span><span id="topStatus">Connecting to engines…</span><button class="tiny" id="reloadBtn">↻ Refresh</button></div></header>
+    <main id="page" class="page" aria-live="polite"><div class="panel">Loading tool page…</div></main>
+    <footer class="footer">CloudShield 3.0 · Student security laboratory · Measurements are produced by real tools, not demo toggles. | <a href="/target/store" target="_blank" rel="noopener">Protected Store ↗</a></footer>
+  </div>
+</div>
+<div id="toast" role="alert" class="toast hidden"></div>
+<script src="/static/app.js?v=3" defer></script>
+</body></html>

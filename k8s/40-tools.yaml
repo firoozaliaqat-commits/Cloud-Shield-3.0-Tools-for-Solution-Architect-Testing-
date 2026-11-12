@@ -1,0 +1,110 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: iperf3-server
+  namespace: cloudshield
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: iperf3-server
+  template:
+    metadata:
+      labels:
+        app: iperf3-server
+    spec:
+      containers:
+      - name: iperf3-server
+        image: cloudshield-iperf3:2.0.0
+        imagePullPolicy: Never
+        args:
+        - -s
+        ports:
+        - containerPort: 5201
+        resources:
+          requests:
+            cpu: 30m
+            memory: 32Mi
+          limits:
+            cpu: 500m
+            memory: 130Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: iperf3-server
+  namespace: cloudshield
+spec:
+  selector:
+    app: iperf3-server
+  ports:
+  - port: 5201
+    targetPort: 5201
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: toolbox
+  namespace: cloudshield
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: toolbox
+  template:
+    metadata:
+      labels:
+        app: toolbox
+    spec:
+      containers:
+      - name: toolbox
+        image: cloudshield-toolbox:3.0.0
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 8099
+        env:
+        - name: TOOLBOX_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: cloudshield-key
+              key: toolboxToken
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        resources:
+          requests:
+            cpu: 50m
+            memory: 128Mi
+          limits:
+            cpu: 750m
+            memory: 1100Mi
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8099
+          initialDelaySeconds: 3
+          periodSeconds: 10
+        securityContext:
+          capabilities:
+            add:
+            - NET_RAW
+            - NET_ADMIN
+          allowPrivilegeEscalation: false
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: lab-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: toolbox
+  namespace: cloudshield
+spec:
+  selector:
+    app: toolbox
+  ports:
+  - port: 8099
+    targetPort: 8099
